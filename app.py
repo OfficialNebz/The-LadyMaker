@@ -283,23 +283,42 @@ def save_to_notion(p_name, post, persona, token, db_id):
 # --- 7. UI LAYOUT ---
 st.title("THE LADYMAKER / INTELLIGENCE")
 
+# --- INSERT THIS BLOCK ---
+with st.expander("📖 SYSTEM MANUAL (CLICK TO OPEN)"):
+    st.markdown("### OPERATIONAL GUIDE")
+    st.markdown("---")
+    c1, c2 = st.columns([1, 1.5])
+    with c1:
+        st.markdown("**STEP 1: SOURCE**\n\nGo to The Ladymaker site. Open a single product page.")
+        st.caption(".../products/name")
+    with c2:
+        try:
+            st.image("Screenshot (455).png", use_container_width=True)
+        except:
+            st.warning("⚠️ Image 'Screenshot (455).png' missing.")
+
+    st.markdown("---")
+    c3, c4 = st.columns([1, 1.5])
+    with c3:
+        st.markdown("**STEP 2: ACQUIRE**\n\nCopy the URL from the browser bar.")
+    with c4:
+        try:
+            st.image("Screenshot (456).png", use_container_width=True)
+        except:
+            pass
+
+    st.markdown("---")
+    c5, c6 = st.columns([1, 1.5])
+    with c5:
+        st.markdown("**STEP 3: INJECT**\n\nPaste below and execute.")
+    with c6:
+        try:
+            st.image("Screenshot (457).png", use_container_width=True)
+        except:
+            pass
+# --- END INSERT ---
+
 url_input = st.text_input("Product URL", placeholder="Paste Ladymaker URL...")
-
-if st.button("GENERATE ASSETS"):
-    if not api_key:
-        st.error("API Key Missing in Secrets.")
-    elif not url_input:
-        st.error("Paste a URL first.")
-    else:
-        with st.spinner("Analyzing Silhouette & Structure..."):
-            st.session_state.gen_id += 1
-            p_name, p_desc = scrape_website(url_input)
-            if p_name is None:
-                st.error(p_desc)
-            else:
-                st.session_state.p_name = p_name
-                st.session_state.results = generate_campaign(p_name, p_desc, api_key)
-
 # --- 8. RESULTS DASHBOARD ---
 if st.session_state.results:
     st.divider()
