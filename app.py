@@ -319,6 +319,27 @@ with st.expander("📖 SYSTEM MANUAL (CLICK TO OPEN)"):
 # --- END INSERT ---
 
 url_input = st.text_input("Product URL", placeholder="Paste Ladymaker URL...")
+
+# --- INSERT THIS BETWEEN 'url_input' AND SECTION 8 ---
+
+if st.button("GENERATE ASSETS"):
+    if not api_key:
+        st.error("API Key Missing.")
+    elif not url_input:
+        st.error("Paste a URL first.")
+    else:
+        with st.spinner("Analyzing Silhouette & Structure..."):
+            st.session_state.gen_id += 1
+            p_name, p_desc = scrape_website(url_input)
+            if p_name is None:
+                st.error(p_desc)
+            else:
+                st.session_state.p_name = p_name
+                st.session_state.results = generate_campaign(p_name, p_desc, api_key)
+
+# --- END INSERT ---
+
+
 # --- 8. RESULTS DASHBOARD ---
 if st.session_state.results:
     st.divider()
