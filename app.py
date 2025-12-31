@@ -15,7 +15,6 @@ st.set_page_config(
 )
 
 # --- GLOBAL CONSTANTS ---
-# Use the correct Notion API endpoint
 NOTION_API_URL = "https://api.notion.com/v1/pages"
 
 # --- 2. THE MONOCHROME ENGINE (CSS) ---
@@ -27,18 +26,14 @@ st.markdown("""
         background-color: #000000; 
         font-family: 'Montserrat', sans-serif !important; 
     }
-
     p, div, span, label, button, input, textarea, select {
         font-family: 'Montserrat', sans-serif;
     }
-
     h1, h2, h3, h4 { 
         font-family: 'Cormorant Garamond', serif !important; 
         letter-spacing: 1px; 
         color: #FFFFFF; 
     }
-
-    /* AUTH SCREEN */
     .auth-card {
         background: transparent;
         border: 1px solid #FFFFFF;
@@ -46,17 +41,13 @@ st.markdown("""
         text-align: center;
         margin-top: 50px;
     }
-
-    /* SIDEBAR VISIBILITY */
     [data-testid="stSidebar"] {
         background-color: #000000;
         border-right: 1px solid #333;
     }
-
     header {visibility: visible !important; background-color: transparent !important;}
     [data-testid="stDecoration"] {visibility: hidden;}
 
-    /* BUTTON STYLING */
     div.stButton > button {
         width: 100%;
         background-color: transparent;
@@ -68,15 +59,12 @@ st.markdown("""
         transition: all 0.4s ease;
         border-radius: 0px;
     }
-
     div.stButton > button:hover {
         background-color: #FFFFFF;
         color: #000000;
         border: 1px solid #FFFFFF;
         transform: scale(1.01);
     }
-
-    /* INPUT FIELDS */
     div[data-baseweb="input"] > div, textarea {
         background-color: #050505 !important;
         border: 1px solid #333 !important;
@@ -84,14 +72,10 @@ st.markdown("""
         text-align: center;
         border-radius: 0px;
     }
-
-    /* TOASTS */
     div[data-baseweb="toast"] {
         background-color: #FFFFFF !important;
         color: #000000 !important;
     }
-
-    /* REMOVE FOOTER */
     footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
@@ -102,7 +86,6 @@ if "results" not in st.session_state: st.session_state.results = None
 if "p_name" not in st.session_state: st.session_state.p_name = ""
 if "gen_id" not in st.session_state: st.session_state.gen_id = 0
 
-# LOAD SECRETS (Ensure these are in .streamlit/secrets.toml)
 api_key = st.secrets.get("GEMINI_API_KEY")
 notion_token = st.secrets.get("NOTION_TOKEN")
 notion_db_id = st.secrets.get("NOTION_DB_ID")
@@ -129,9 +112,7 @@ def login_screen():
                 "<p style='text-align: center; font-size: 10px; letter-spacing: 4px; color: #888; margin-top: 10px; margin-bottom: 40px;'>INTELLIGENCE ACCESS</p>",
                 unsafe_allow_html=True)
 
-            # HARDCODED KEY AS DISCUSSED - CHANGE HERE IF NEEDED
             SYSTEM_KEY = "neb123"
-
             password = st.text_input("PASSWORD", type="password", label_visibility="collapsed", placeholder="ENTER KEY")
             st.write("##")
 
@@ -153,7 +134,7 @@ if not st.session_state.authenticated:
 
 def scrape_website(target_url):
     if "theladymaker.com" not in target_url:
-        return None, "❌ ERROR: INVALID DOMAIN. This system is locked to The Ladymaker assets only."
+        return None, "❌ ERROR: INVALID DOMAIN. Locked to The Ladymaker."
 
     headers = {'User-Agent': 'Mozilla/5.0'}
     clean_url = target_url.split('?')[0]
@@ -161,8 +142,9 @@ def scrape_website(target_url):
     title = "Ladymaker Piece"
     desc_text = ""
 
-    # Strategy 1: JSON Endpoint
+    # Strategy 1: JSON
     try:
+        # TIMEOUT OPTIMIZED TO 5S
         r = requests.get(json_url, headers=headers, timeout=5)
         if r.status_code == 200:
             data = r.json().get('product', {})
@@ -173,15 +155,15 @@ def scrape_website(target_url):
     except:
         pass
 
-    # Strategy 2: HTML Scrape
+    # Strategy 2: HTML
     if not desc_text:
         try:
-            r = requests.get(target_url, headers=headers, timeout=10)
+            # TIMEOUT OPTIMIZED TO 5S
+            r = requests.get(target_url, headers=headers, timeout=5)
             if r.status_code != 200: return None, f"❌ SITE ERROR: {r.status_code}"
             soup = BeautifulSoup(r.content, 'html.parser')
             if soup.find('h1'): title = soup.find('h1').text.strip()
 
-            # Try multiple description selectors
             main_block = soup.find('div', class_='product-description') or \
                          soup.find('div', class_='rte') or \
                          soup.find('div', id='description')
@@ -192,7 +174,6 @@ def scrape_website(target_url):
 
     if not desc_text: return title, "[NO TEXT FOUND. PLEASE INPUT MANUALLY]"
 
-    # Clean the text (Remove Shipping/Returns info)
     clean_lines = []
     for line in desc_text.split('\n'):
         upper = line.upper()
@@ -203,6 +184,7 @@ def scrape_website(target_url):
 
 def generate_campaign(product_name, description, key):
     genai.configure(api_key=key)
+    # VERIFIED MODEL
     model = genai.GenerativeModel('gemini-flash-latest')
 
     prompt = f"""
@@ -212,24 +194,16 @@ def generate_campaign(product_name, description, key):
     Specs: {description}
 
     TASK:
-    1. Select TOP 3 DISTINCT personas from the list below.
-    2. Write 3 separate captions (one for each persona).
+    1. Select TOP 3 DISTINCT personas.
+    2. Write 3 separate captions.
     3. Write 1 "Master Hybrid" caption. 
 
-    PERSONAS:
-    - The Art Collector, The Diplomat's Wife, The Oil & Gas Executive, The Modern Matriarch, 
-    - The Geneva Expat, The Private Equity Partner, The Contemporary Gallerist, The Ikoyi Hostess.
-
-    CRITICAL INSTRUCTION FOR HYBRID CAPTION:
-    Do NOT say "Combining X and Y". Do NOT list features. 
-    Write a seamless, sophisticated narrative that blends the traits into ONE unified voice. 
-    It must sound like the ultimate Ladymaker woman.
+    PERSONAS: Art Collector, Diplomat's Wife, Oil Exec, Modern Matriarch, Geneva Expat, PE Partner, Gallerist, Ikoyi Hostess.
 
     Output Format (JSON Array only):
     [
         {{"persona": "Persona Name 1", "post": "Caption 1..."}},
-        {{"persona": "Persona Name 2", "post": "Caption 2..."}},
-        {{"persona": "Persona Name 3", "post": "Caption 3..."}},
+        ...
         {{"persona": "The Ladymaker Hybrid", "post": "The unified master caption..."}}
     ]
     """
@@ -251,29 +225,22 @@ def save_to_notion(p_name, post, persona, token, db_id):
         "Notion-Version": "2022-06-28"
     }
 
-    # This payload is engineered to hit the "Status" column specifically
     data = {
         "parent": {"database_id": db_id},
         "properties": {
             "Product Name": {"title": [{"text": {"content": str(p_name)}}]},
             "Persona": {"rich_text": [{"text": {"content": str(persona)}}]},
             "Generated Post": {"rich_text": [{"text": {"content": str(post)[:2000]}}]},
-
-            # THE MONEY MAKER: Sets the workflow status
-            "Status": {
-                "status": {
-                    "name": "Draft"
-                }
-            }
+            "Status": {"status": {"name": "Draft"}}
         }
     }
 
     try:
-        response = requests.post(NOTION_API_URL, headers=headers, data=json.dumps(data), timeout=15)
+        # TIMEOUT OPTIMIZED TO 5S
+        response = requests.post(NOTION_API_URL, headers=headers, data=json.dumps(data), timeout=5)
         if response.status_code == 200:
             return True, "Success"
         else:
-            # If this fails, it's 99% because the user didn't set up the Notion column named "Status" with an option "Draft"
             error_msg = response.json().get('message', 'Unknown Error')
             return False, f"Notion Error {response.status_code}: {error_msg}"
     except Exception as e:
@@ -283,46 +250,30 @@ def save_to_notion(p_name, post, persona, token, db_id):
 # --- 7. UI LAYOUT ---
 st.title("THE LADYMAKER / INTELLIGENCE")
 
-# --- INSERT THIS BLOCK ---
 with st.expander("📖 SYSTEM MANUAL (CLICK TO OPEN)"):
     st.markdown("### OPERATIONAL GUIDE")
     st.markdown("---")
     c1, c2 = st.columns([1, 1.5])
     with c1:
-        st.markdown("**STEP 1: SOURCE**\n\nGo to The Ladymaker site. Open a single product page.")
-        st.caption(".../products/name")
+        st.markdown("**STEP 1: SOURCE**\n\nGo to The Ladymaker site. Open product page.")
     with c2:
         try:
             st.image("Screenshot (455).png", use_container_width=True)
         except:
-            st.warning("⚠️ Image 'Screenshot (455).png' missing.")
-
+            st.warning("Image missing.")
     st.markdown("---")
     c3, c4 = st.columns([1, 1.5])
     with c3:
-        st.markdown("**STEP 2: ACQUIRE**\n\nCopy the URL from the browser bar.")
+        st.markdown("**STEP 2: INJECT**\n\nPaste URL below.")
     with c4:
-        try:
-            st.image("Screenshot (456).png", use_container_width=True)
-        except:
-            pass
-
-    st.markdown("---")
-    c5, c6 = st.columns([1, 1.5])
-    with c5:
-        st.markdown("**STEP 3: INJECT**\n\nPaste below and execute.")
-    with c6:
         try:
             st.image("Screenshot (457).png", use_container_width=True)
         except:
             pass
-# --- END INSERT ---
 
 url_input = st.text_input("Product URL", placeholder="Paste Ladymaker URL...")
 
-# --- INSERT THIS BETWEEN 'url_input' AND SECTION 8 ---
-
-if st.button("GENERATE ASSETS"):
+if st.button("GENERATE ASSETS", type="primary"):
     if not api_key:
         st.error("API Key Missing.")
     elif not url_input:
@@ -337,42 +288,37 @@ if st.button("GENERATE ASSETS"):
                 st.session_state.p_name = p_name
                 st.session_state.results = generate_campaign(p_name, p_desc, api_key)
 
-# --- END INSERT ---
-
-
 # --- 8. RESULTS DASHBOARD ---
 if st.session_state.results:
     st.divider()
     st.subheader(st.session_state.p_name.upper())
 
-    # --- BULK EXPORT BUTTON ---
+    # --- BULK EXPORT BUTTON (OPTIMIZED) ---
     if st.button("💾 EXPORT CAMPAIGN TO NOTION", type="primary", use_container_width=True):
         if not notion_token or not notion_db_id:
             st.error("⚠️ Notion Secrets NOT configured!")
         else:
             success_count = 0
-            fail_count = 0
-            progress_bar = st.progress(0)
-            current_gen = st.session_state.gen_id
+            with st.spinner("Initializing Notion Uplink..."):  # SPINNER ADDED
+                progress_bar = st.progress(0)
+                current_gen = st.session_state.gen_id
 
-            for i, item in enumerate(st.session_state.results):
-                p_val = item.get('persona', '')
-                # Get the text from the widget state if edited, otherwise use original
-                widget_key = f"editor_{i}_{current_gen}"
-                original_post = item.get('post', '')
-                final_post = st.session_state.get(widget_key, original_post)
+                for i, item in enumerate(st.session_state.results):
+                    p_val = item.get('persona', '')
+                    widget_key = f"editor_{i}_{current_gen}"
+                    original_post = item.get('post', '')
+                    final_post = st.session_state.get(widget_key, original_post)
 
-                if p_val and final_post:
-                    s, m = save_to_notion(st.session_state.p_name, final_post, p_val, notion_token, notion_db_id)
-                    if s:
-                        success_count += 1
-                    else:
-                        fail_count += 1
-                progress_bar.progress((i + 1) / len(st.session_state.results))
+                    if p_val and final_post:
+                        s, m = save_to_notion(st.session_state.p_name, final_post, p_val, notion_token, notion_db_id)
+                        if s: success_count += 1
+
+                    # LAG REMOVED
+                    progress_bar.progress((i + 1) / len(st.session_state.results))
 
             if success_count > 0:
                 st.success(f"✅ UPLOAD COMPLETE: {success_count} Assets Sent.")
-                time.sleep(1.5)
+                time.sleep(1)
                 st.rerun()
 
     st.markdown("---")
@@ -387,19 +333,14 @@ if st.session_state.results:
             c1, c2 = st.columns([0.75, 0.25])
             with c1:
                 st.subheader(persona)
-                # Unique key ensures text persists during edits
-                edited_text = st.text_area(
-                    label=f"Edit {persona}",
-                    value=post,
-                    height=200,
-                    key=f"editor_{i}_{current_gen}",
-                    label_visibility="collapsed"
-                )
+                edited_text = st.text_area(label=f"Edit {persona}", value=post, height=200,
+                                           key=f"editor_{i}_{current_gen}", label_visibility="collapsed")
             with c2:
-                st.write("##")  # Spacing
+                st.write("##");
                 st.write("##")
+                # SPINNER ADDED TO SINGLE SAVE
                 if st.button("SAVE SINGLE", key=f"btn_{i}_{current_gen}"):
-                    with st.spinner("Saving..."):
+                    with st.spinner("Syncing to Notion..."):
                         s, m = save_to_notion(st.session_state.p_name, edited_text, persona, notion_token, notion_db_id)
                         if s:
                             st.toast(f"✅ Saved: {persona}")
