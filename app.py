@@ -97,6 +97,9 @@ with st.sidebar:
     if st.button("🔄 RESET SYSTEM"):
         st.session_state.clear()
         st.rerun()
+    st.markdown(
+        "<div style='text-align: center; color: #666; font-size: 12px; margin-top: 5px;'><em>Tap to clear cache & start new analysis.</em></div>",
+        unsafe_allow_html=True)
 
 
 # --- 5. AUTHENTICATION ---
