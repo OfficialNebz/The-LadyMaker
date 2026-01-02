@@ -1,10 +1,11 @@
 import streamlit as st
-import os
 import requests
 import json
 import time
 from bs4 import BeautifulSoup
 import google.generativeai as genai
+from PIL import Image
+from io import BytesIO
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(
@@ -93,10 +94,13 @@ notion_db_id = st.secrets.get("NOTION_DB_ID")
 # --- 4. SIDEBAR ---
 with st.sidebar:
     st.markdown("### ATELIER CONTROL")
-    st.caption("The Ladymaker System v3.2 (Production)")
+    st.caption("The Ladymaker System v3.3 (Vision + Cache)")
+
     if st.button("🔄 RESET SYSTEM"):
+        st.cache_data.clear()  # Clears cache
         st.session_state.clear()
         st.rerun()
+
     st.markdown(
         "<div style='text-align: center; color: #666; font-size: 12px; margin-top: 5px;'><em>Tap to clear cache & start new analysis.</em></div>",
         unsafe_allow_html=True)
@@ -133,62 +137,96 @@ if not st.session_state.authenticated:
     st.stop()
 
 
-# --- 6. CORE LOGIC ---
+# --- 6. CORE LOGIC (ARCHITECT LEVEL) ---
 
+@st.cache_data(show_spinner=False)
 def scrape_website(target_url):
+    """
+    Scrapes title, description AND raw JSON data to find images.
+    """
     if "theladymaker.com" not in target_url:
-        return None, "❌ ERROR: INVALID DOMAIN. Locked to The Ladymaker."
+        return None, "❌ ERROR: INVALID DOMAIN. Locked to The Ladymaker.", None
 
     headers = {'User-Agent': 'Mozilla/5.0'}
     clean_url = target_url.split('?')[0]
     json_url = f"{clean_url}.json"
     title = "Ladymaker Piece"
     desc_text = ""
+    raw_json = None
 
-    # Strategy 1: JSON
+    # Strategy 1: JSON (Vision Source)
     try:
-        # TIMEOUT OPTIMIZED TO 5S
         r = requests.get(json_url, headers=headers, timeout=5)
         if r.status_code == 200:
-            data = r.json().get('product', {})
-            title = data.get('title', title)
-            raw_html = data.get('body_html', "")
+            raw_json = r.json().get('product', {})
+            title = raw_json.get('title', title)
+            raw_html = raw_json.get('body_html', "")
             soup = BeautifulSoup(raw_html, 'html.parser')
             desc_text = soup.get_text(separator="\n", strip=True)
     except:
         pass
 
-    # Strategy 2: HTML
+    # Strategy 2: HTML Fallback
     if not desc_text:
         try:
-            # TIMEOUT OPTIMIZED TO 5S
             r = requests.get(target_url, headers=headers, timeout=5)
-            if r.status_code != 200: return None, f"❌ SITE ERROR: {r.status_code}"
             soup = BeautifulSoup(r.content, 'html.parser')
             if soup.find('h1'): title = soup.find('h1').text.strip()
-
             main_block = soup.find('div', class_='product-description') or \
                          soup.find('div', class_='rte') or \
                          soup.find('div', id='description')
-
             if main_block: desc_text = main_block.get_text(separator="\n", strip=True)
         except Exception as e:
-            return None, f"Scrape Error: {str(e)}"
+            return None, f"Scrape Error: {str(e)}", None
 
-    if not desc_text: return title, "[NO TEXT FOUND. PLEASE INPUT MANUALLY]"
+    if not desc_text: return title, "[NO TEXT FOUND]", None
 
     clean_lines = []
     for line in desc_text.split('\n'):
         upper = line.upper()
         if any(x in upper for x in ["SHIPPING", "DELIVERY", "RETURNS", "SIZE GUIDE", "WHATSAPP"]): continue
         if len(line) > 5: clean_lines.append(line)
-    return title, "\n".join(clean_lines[:30])
+
+    return title, "\n".join(clean_lines[:30]), raw_json
 
 
-def generate_campaign(product_name, description, key):
+@st.cache_data(show_spinner=False)
+def get_optimized_images(product_json):
+    """
+    Downloads up to 3 images, resized to 800px width for speed.
+    """
+    if not product_json: return []
+
+    images = []
+    raw_images = product_json.get('images', [])[:3]
+
+    for img in raw_images:
+        src = img.get('src', '')
+        if src:
+            # OPTIMIZATION
+            if ".jpg" in src:
+                optimized_src = src.replace(".jpg", "_800x.jpg")
+            elif ".png" in src:
+                optimized_src = src.replace(".png", "_800x.png")
+            else:
+                optimized_src = src
+
+            try:
+                response = requests.get(optimized_src, timeout=3)
+                if response.status_code == 200:
+                    img_bytes = BytesIO(response.content)
+                    images.append(Image.open(img_bytes))
+            except:
+                continue
+
+    return images
+
+
+@st.cache_data(show_spinner=False)
+def generate_campaign(product_name, description, _images, key):
     genai.configure(api_key=key)
-    # VERIFIED MODEL
-    model = genai.GenerativeModel('gemini-flash-latest')
+    # UPDATED TO STABLE MODEL
+    model = genai.GenerativeModel('models/gemini-flash-latest')
 
     prompt = f"""
     Role: Head of Brand Narrative for 'The Ladymaker'.
@@ -197,9 +235,10 @@ def generate_campaign(product_name, description, key):
     Specs: {description}
 
     TASK:
-    1. Select TOP 3 DISTINCT personas.
-    2. Write 3 separate captions.
-    3. Write 1 "Master Hybrid" caption. 
+    1. VISUAL AUDIT: Look at the images. Analyze the structure, pleating, and fabric movement.
+    2. WRITE: 
+       - 3 separate Personas.
+       - 1 "Master Hybrid" caption.
 
     PERSONAS: Art Collector, Diplomat's Wife, Oil Exec, Modern Matriarch, Geneva Expat, PE Partner, Gallerist, Ikoyi Hostess.
 
@@ -210,8 +249,13 @@ def generate_campaign(product_name, description, key):
         {{"persona": "The Ladymaker Hybrid", "post": "The unified master caption..."}}
     ]
     """
+
+    content_payload = [prompt]
+    if _images:
+        content_payload.extend(_images)
+
     try:
-        response = model.generate_content(prompt)
+        response = model.generate_content(content_payload)
         txt = response.text
         if "```json" in txt: txt = txt.split("```json")[1].split("```")[0]
         return json.loads(txt.strip())
@@ -239,13 +283,11 @@ def save_to_notion(p_name, post, persona, token, db_id):
     }
 
     try:
-        # TIMEOUT OPTIMIZED TO 5S
         response = requests.post(NOTION_API_URL, headers=headers, data=json.dumps(data), timeout=5)
         if response.status_code == 200:
             return True, "Success"
         else:
-            error_msg = response.json().get('message', 'Unknown Error')
-            return False, f"Notion Error {response.status_code}: {error_msg}"
+            return False, f"Notion Error {response.status_code}"
     except Exception as e:
         return False, f"System Error: {str(e)}"
 
@@ -278,32 +320,43 @@ url_input = st.text_input("Product URL", placeholder="Paste Ladymaker URL...")
 
 if st.button("GENERATE ASSETS", type="primary"):
     if not api_key:
-        st.error("API Key Missing.")
+        st.error("API Key Missing. Check Secrets.")
     elif not url_input:
         st.error("Paste a URL first.")
     else:
-        with st.spinner("Analyzing Silhouette & Structure..."):
-            st.session_state.gen_id += 1
-            p_name, p_desc = scrape_website(url_input)
-            if p_name is None:
-                st.error(p_desc)
-            else:
+        with st.spinner("ANALYZING SILHOUETTE & VISUALS..."):
+            # 1. Scrape
+            p_name, desc, raw_json = scrape_website(url_input)
+
+            if p_name:
                 st.session_state.p_name = p_name
-                st.session_state.results = generate_campaign(p_name, p_desc, api_key)
+
+                # 2. Get Images
+                images_list = []
+                if raw_json:
+                    st.toast("📸 Scanning Fabric Details...")
+                    images_list = get_optimized_images(raw_json)
+
+                # 3. Generate (Vision)
+                st.session_state.results = generate_campaign(p_name, desc, images_list, api_key)
+                st.session_state.gen_id += 1
+                st.rerun()
+            else:
+                st.error(f"❌ Connection Failed: {desc}")
 
 # --- 8. RESULTS DASHBOARD ---
 if st.session_state.results:
     st.divider()
     st.subheader(st.session_state.p_name.upper())
 
-    # --- BULK EXPORT BUTTON (OPTIMIZED) ---
+    # --- BULK EXPORT ---
     if st.button("💾 EXPORT CAMPAIGN TO NOTION", type="primary", use_container_width=True):
-        if not notion_token or not notion_db_id:
+        if not notion_token:
             st.error("⚠️ Notion Secrets NOT configured!")
         else:
             success_count = 0
-            with st.spinner("Initializing Notion Uplink..."):  # SPINNER ADDED
-                progress_bar = st.progress(0)
+            with st.spinner("Initializing Notion Uplink..."):
+                bar = st.progress(0)
                 current_gen = st.session_state.gen_id
 
                 for i, item in enumerate(st.session_state.results):
@@ -316,8 +369,7 @@ if st.session_state.results:
                         s, m = save_to_notion(st.session_state.p_name, final_post, p_val, notion_token, notion_db_id)
                         if s: success_count += 1
 
-                    # LAG REMOVED
-                    progress_bar.progress((i + 1) / len(st.session_state.results))
+                    bar.progress((i + 1) / len(st.session_state.results))
 
             if success_count > 0:
                 st.success(f"✅ UPLOAD COMPLETE: {success_count} Assets Sent.")
@@ -341,12 +393,11 @@ if st.session_state.results:
             with c2:
                 st.write("##");
                 st.write("##")
-                # SPINNER ADDED TO SINGLE SAVE
                 if st.button("SAVE SINGLE", key=f"btn_{i}_{current_gen}"):
                     with st.spinner("Syncing to Notion..."):
                         s, m = save_to_notion(st.session_state.p_name, edited_text, persona, notion_token, notion_db_id)
                         if s:
-                            st.toast(f"✅ Saved: {persona}")
+                            st.toast(f"✅ Saved")
                         else:
                             st.error(f"Failed: {m}")
         st.divider()
